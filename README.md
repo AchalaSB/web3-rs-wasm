@@ -2,6 +2,7 @@
 
 Ethereum JSON-RPC multi-transport client.
 Rust implementation of Web3.js library.
+This crate can be compiled to Webassembly
 
 ## Usage
 
