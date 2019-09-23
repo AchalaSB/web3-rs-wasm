@@ -23,5 +23,7 @@ tokio-timer = "0.1"
 url = "1.7.2"
 base64 = "0.10.1"
 derive_more = "0.15.0"
+http = "0.1"
+
 
 [workspace]
