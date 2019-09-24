@@ -1,6 +1,6 @@
 //! HTTP Transport
 
-extern crate hyper;
+extern crate http;
 extern crate url;
 
 #[cfg(feature = "tls")]
@@ -12,7 +12,7 @@ use std::ops::Deref;
 use std::sync::atomic::{self, AtomicUsize};
 use std::sync::Arc;
 
-use self::hyper::header::HeaderValue;
+use self::http::header::HeaderValue;
 use self::url::Url;
 use crate::helpers;
 use crate::rpc;
@@ -25,20 +25,20 @@ use futures::sync::{mpsc, oneshot};
 use futures::{self, future, Future, Stream};
 use serde_json;
 
-impl From<hyper::Error> for Error {
-    fn from(err: hyper::Error) -> Self {
+impl From<http::Error> for Error {
+    fn from(err: http::Error) -> Self {
         Error::Transport(format!("{:?}", err))
     }
 }
 
-impl From<hyper::http::uri::InvalidUri> for Error {
-    fn from(err: hyper::http::uri::InvalidUri) -> Self {
+impl From<http::uri::InvalidUri> for Error {
+    fn from(err:http::uri::InvalidUri) -> Self {
         Error::Transport(format!("{:?}", err))
     }
 }
 
-impl From<hyper::header::InvalidHeaderValue> for Error {
-    fn from(err: hyper::header::InvalidHeaderValue) -> Self {
+impl From<http::header::InvalidHeaderValue> for Error {
+    fn from(err: http::header::InvalidHeaderValue) -> Self {
         Error::Transport(format!("{}", err))
     }
 }
@@ -60,18 +60,18 @@ impl From<native_tls::Error> for Error {
 // The max string length of a request without transfer-encoding: chunked.
 const MAX_SINGLE_CHUNK: usize = 256;
 const DEFAULT_MAX_PARALLEL: usize = 64;
-type Pending = oneshot::Sender<Result<hyper::Chunk>>;
+type Pending = oneshot::Sender<Result<http::response::Response::into_body>>;
 
 /// A future representing pending HTTP request, resolves to a response.
-pub type FetchTask<F> = Response<F, hyper::Chunk>;
+pub type FetchTask<F> = Response<F, http::response::Response::into_body>;
 
 /// HTTP Transport (synchronous)
 #[derive(Debug, Clone)]
 pub struct Http {
     id: Arc<AtomicUsize>,
-    url: hyper::Uri,
+    url: http::uri::Uri,
     basic_auth: Option<HeaderValue>,
-    write_sender: mpsc::UnboundedSender<(hyper::Request<hyper::Body>, Pending)>,
+    write_sender: mpsc::UnboundedSender<(http::Request<http::Body>, Pending)>,
 }
 
 impl Http {
@@ -94,10 +94,9 @@ impl Http {
         let (write_sender, write_receiver) = mpsc::unbounded();
 
         #[cfg(feature = "tls")]
-        let client = hyper::Client::builder().build::<_, hyper::Body>(hyper_tls::HttpsConnector::new(4)?);
-
+        let client = http::request::builder().build::<_, http::request::Request::Body>(hyper_tls::HttpsConnector::new(4)?);
         #[cfg(not(feature = "tls"))]
-        let client = hyper::Client::new();
+        let client = http::request::Request::new();
 
         handle.spawn(
             write_receiver
@@ -145,29 +144,29 @@ impl Http {
 
     fn send_request<F, O>(&self, id: RequestId, request: rpc::Request, extract: F) -> FetchTask<F>
     where
-        F: Fn(hyper::Chunk) -> O,
+        F: Fn(http::response::Response::into_body) -> O,
     {
         let request = helpers::to_string(&request);
         log::debug!("[{}] Sending: {} to {}", id, request, self.url);
         let len = request.len();
-        let mut req = hyper::Request::new(hyper::Body::from(request));
-        *req.method_mut() = hyper::Method::POST;
+        let mut req = http::Request::new(http::request::Request::from(request));
+        *req.method_mut() = http::method::Method::POST;
         *req.uri_mut() = self.url.clone();
         req.headers_mut().insert(
-            hyper::header::CONTENT_TYPE,
+            http::header::CONTENT_TYPE,
             HeaderValue::from_static("application/json"),
         );
         req.headers_mut()
-            .insert(hyper::header::USER_AGENT, HeaderValue::from_static("web3.rs"));
+            .insert(http::header::USER_AGENT, HeaderValue::from_static("web3.rs"));
 
         // Don't send chunked request
         if len < MAX_SINGLE_CHUNK {
-            req.headers_mut().insert(hyper::header::CONTENT_LENGTH, len.into());
+            req.headers_mut().insert(http::header::CONTENT_LENGTH, len.into());
         }
         // Send basic auth header
         if let Some(ref basic_auth) = self.basic_auth {
             req.headers_mut()
-                .insert(hyper::header::AUTHORIZATION, basic_auth.clone());
+                .insert(http::header::AUTHORIZATION, basic_auth.clone());
         }
         let (tx, rx) = futures::oneshot();
         let result = self
@@ -180,7 +179,7 @@ impl Http {
 }
 
 impl Transport for Http {
-    type Out = FetchTask<fn(hyper::Chunk) -> Result<rpc::Value>>;
+    type Out = FetchTask<fn(http::response::Response::into_body) -> Result<rpc::Value>>;
 
     fn prepare(&self, method: &str, params: Vec<rpc::Value>) -> (RequestId, rpc::Call) {
         let id = self.id.fetch_add(1, atomic::Ordering::AcqRel);
@@ -195,7 +194,7 @@ impl Transport for Http {
 }
 
 impl BatchTransport for Http {
-    type Batch = FetchTask<fn(hyper::Chunk) -> Result<Vec<Result<rpc::Value>>>>;
+    type Batch = FetchTask<fn(http::response::Response::into_body) -> Result<Vec<Result<rpc::Value>>>>;
 
     fn send_batch<T>(&self, requests: T) -> Self::Batch
     where

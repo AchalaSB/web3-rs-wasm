@@ -23,7 +23,7 @@ pub mod helpers;
 pub mod api;
 pub mod contract;
 pub mod error;
-// pub mod transports;
+pub mod transports;
 pub mod types;
 
 pub mod confirm;

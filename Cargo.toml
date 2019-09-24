@@ -25,5 +25,7 @@ base64 = "0.10.1"
 derive_more = "0.15.0"
 http = "0.1"
 
+[dev-dependencies]
+env_logger = "0.6.0"
 
 [workspace]
